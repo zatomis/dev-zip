@@ -48,6 +48,12 @@ python server.py
 GET http://host.ru/archive/3bea29ccabbbf64bdebcc055319c5745/
 GET http://host.ru/archive/af1ad8c76fda2e48ea9aed2937e972ea/
 ```
+## Готовый образ на [DockerHub](https://hub.docker.com/repository/docker/zatomis/python_dev_microzip/general)
+
+Команда для зауска
+```bash
+docker run -d -p 8080:8080 -v "$(pwd)"/photos:/MicroZip/photos --rm -it zatomis/python_dev_microzip:latest
+```
 
 # Цели проекта
 
