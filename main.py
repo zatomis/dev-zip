@@ -7,6 +7,7 @@ import asyncio
 from aiohttp import web
 import logging
 
+CHUNK = 1024
 
 logger = logging.getLogger(__name__)
 
@@ -39,37 +40,41 @@ def parse_arguments():
 async def archive(request, folder, delay):
     response = web.StreamResponse()
     work_dir = f"{folder}/{request.url.parts[2]}/"
-    if os.path.isdir(work_dir):
-        logger.info(f"Send archive from  - {work_dir}")
-        response.content_type = 'application/zip'
-        response.headers['Content-Disposition'] = 'attachment; \
-            filename="filename.zip"'
-        await response.prepare(request)
-        files_in_dir = os.listdir(f"./{work_dir}")
-        command = ["zip", "-r", "-", *files_in_dir]
-        proc = await asyncio.create_subprocess_exec(*command,
-                                                    stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.PIPE,
-                                                    cwd=work_dir)
-        logger.info(f"Pid = {proc.pid}")
-        try:
-            while not proc.stdout.at_eof():
-                stdout = await proc.stdout.read(100)
-                logger.info(f"Read bytes - {stdout}")
-                await asyncio.sleep(delay)
-                await response.write(stdout)
-            await proc.wait()
-            return response
-        except (asyncio.CancelledError, TimeoutExpired):
-            logger.warning(f"Download was interrupted. Kill process №{proc.pid}")
+    if not os.path.exists(work_dir):
+        logging.error("archive not found")
+        raise web.HTTPNotFound(text="Архив не наиден...")
+
+    logger.info(f"Send archive from  - {work_dir}")
+    response.content_type = 'application/zip'
+    response.headers['Content-Disposition'] = 'attachment; \
+        filename="filename.zip"'
+
+    await response.prepare(request)
+    files_in_dir = os.listdir(f"./{work_dir}")
+    command = ["zip", "-r", "-", *files_in_dir]
+    proc = await asyncio.create_subprocess_exec(*command,
+                                                stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.PIPE,
+                                                cwd=work_dir)
+    logger.info(f"Pid = {proc.pid}")
+    try:
+        while not proc.stdout.at_eof():
+            stdout = await proc.stdout.read(CHUNK)
+            logger.info(f"Read bytes - {stdout}")
+            await asyncio.sleep(delay)
+            await response.write(stdout)
+        await proc.wait()
+        return response
+    except (asyncio.CancelledError, TimeoutExpired):
+        logger.warning(f"Download was interrupted. Kill process №{proc.pid}")
+        proc.kill()
+        raise
+    finally:
+        if proc and proc.returncode is None:
+            logging.info("kill zip proc")
             proc.kill()
-            raise
-    else:
-        logger.warning(f"По указанному пути {work_dir}. Архив не существует или был удален.")
-        response.headers['Content-Type'] = 'text/html'
-        await response.prepare(request)
-        message = f'По указанному пути <br>Архив не существует или был удален.<br>'
-        await response.write(message.encode('cp1251'))
+            await proc.communicate()
+            response.force_close()
         return response
 
 
